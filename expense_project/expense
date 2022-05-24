@@ -2,24 +2,21 @@
 # frozen_string_literal: true
 
 require 'pg'
+require 'io/console'
 
 # Communicates requests to the database.
 class ExpenseData
   def initialize
     @connection = PG.connect(dbname: 'expenses')
+    setup_schema
   end
 
   def list_expenses
     result = connection.exec 'SELECT * FROM expenses ORDER BY created_on ASC;'
 
-    result.each do |tuple|
-      columns = [tuple['id'].rjust(3),
-                 tuple['created_on'].rjust(10),
-                 tuple['amount'].rjust(12),
-                 tuple['memo']]
-
-      puts columns.join(' | ')
-    end
+    display_count(result)
+    display_full_table(result)
+    display_expense_total(result)
   end
 
   def add_expense(amount, memo)
@@ -32,6 +29,32 @@ class ExpenseData
     INSERTION
 
     connection.exec_params sql, [amount, memo, date]
+  end
+
+  def search_expenses(search_term)
+    sql = 'SELECT * FROM expenses WHERE memo ILIKE $1;'
+    result = connection.exec_params sql, ["%#{search_term}%"]
+
+    display_full_table(result)
+    display_expense_total(result)
+  end
+
+  def delete_expense(id)
+    sql = 'SELECT * FROM expenses WHERE id = $1;'
+    result = connection.exec_params sql, [id]
+
+    return (puts "There is no expense with the id '#{id}'.") if result.values.empty?
+
+    sql = 'DELETE FROM expenses WHERE id = $1;'
+    connection.exec_params sql, [id]
+
+    puts 'The following expense has been deleted:'
+    display_full_table(result)
+  end
+
+  def delete_all_expenses
+    connection.exec 'DELETE FROM expenses;'
+    puts 'All expenses have been deleted.'
   end
 
   def display_help
@@ -51,8 +74,57 @@ class ExpenseData
   private
 
   attr_accessor :connection
-end
 
+  def display_full_table(table)
+    table.each do |tuple|
+      columns = [tuple['id'].rjust(3),
+                 tuple['created_on'].rjust(10),
+                 tuple['amount'].rjust(12),
+                 tuple['memo']]
+
+      puts columns.join(' | ')
+    end
+  end
+
+  def display_expense_total(table)
+    puts '-' * 50
+
+    amount_sum = table.field_values('amount').map(&:to_f).inject(:+)
+
+    puts "Total#{amount_sum.to_s.rjust(26)}"
+  end
+
+  def display_count(result)
+    if result.ntuples.zero? then puts 'There are no expenses.'
+    else
+      puts "There are #{result.ntuples} expenses."
+    end
+  end
+
+  def setup_schema
+    create_schema if check_schema[0]['count'] == '0'
+  end
+
+  def check_schema
+    connection.exec <<~QUERY
+      SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'expenses';
+    QUERY
+  end
+
+  def create_schema
+    connection.exec <<~CREATE_TABLE
+      CREATE TABLE expenses (
+        id serial PRIMARY KEY,
+        amount numeric(6, 2) NOT NULL CHECK (amount >= 0.01),
+        memo text NOT NULL,
+        created_on date NOT NULL
+      );
+    CREATE_TABLE
+  end
+end
+  
 # Communicates with the client and relays requests to ExpenseData
 class CLI
   def initialize
@@ -76,9 +148,15 @@ class CLI
 
   def execute
     case args[0]
-    when 'list' then expenses.list_expenses
-    when 'add'  then expenses.add_expense(args[1], args[2])
-    else             expenses.display_help
+    when 'list'   then expenses.list_expenses
+    when 'add'    then expenses.add_expense(args[1], args[2])
+    when 'search' then expenses.search_expenses(args[1])
+    when 'delete' then expenses.delete_expense(args[1])
+    when 'clear'
+      puts 'This will remove all expenses. Are you sure? (y/n)'
+      response = $stdin.getch
+      expenses.delete_all_expenses if response == 'y'
+    else expenses.display_help
     end
   end
 
@@ -87,5 +165,8 @@ class CLI
   attr_reader :args, :expenses
 end
 
-connection = CLI.new
-connection.run(ARGV)
+connection = CLI.new.run(ARGV)
+
+
+
+
