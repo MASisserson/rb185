@@ -69,6 +69,10 @@ class DatabasePersistence
     query(sql, list_id)
   end
 
+  def disconnect
+    @db.close
+  end
+
   private
 
   attr_accessor :session
