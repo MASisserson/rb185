@@ -1,3 +1,6 @@
+# frozen_string_literal: true
+
+# Saves user list and todo data in the session
 class SessionPersistence
   def initialize(session)
     @session = session
