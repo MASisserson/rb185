@@ -6,8 +6,6 @@ require 'tilt/erubis'
 
 require_relative 'database_persistence'
 
-require 'pry'
-
 configure do
   enable :sessions
   set :session_secret, SecureRandom.hex(64)
